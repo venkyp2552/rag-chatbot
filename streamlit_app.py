@@ -97,7 +97,7 @@ st.markdown("""
 
     /* Login card */
     .login-card {
-        max-width: 420px; margin: 3rem auto;
+        max-width: 420px; width: 95%; margin: 2rem auto;
         background: white; border-radius: 16px;
         padding: 2rem; box-shadow: 0 8px 32px rgba(0,0,0,0.12);
     }
@@ -116,6 +116,20 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display: none;}
+
+    /* Responsiveness for Mobile & Tablet */
+    @media (max-width: 768px) {
+        .main-header { padding: 1.5rem 1rem; }
+        .main-header h1 { font-size: 1.6rem; }
+        .chat-user { max-width: 90%; padding: 0.8rem 1rem; }
+        .chat-assistant { max-width: 95%; padding: 0.8rem 1rem; }
+        .stat-number { font-size: 1.4rem; }
+        .login-card { padding: 1.5rem; width: 92%; margin: 1.5rem auto; }
+        
+        /* Ensure inputs and buttons don't overflow */
+        .stButton button { width: 100%; }
+        .stTextInput input { width: 100%; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -213,6 +227,17 @@ def api_list_users() -> list:
         return r.json() if r.status_code == 200 else []
     except:
         return []
+
+def api_list_indexed_docs() -> dict:
+    try:
+        r = requests.get(
+            f"{API_BASE}/ingest/list",
+            headers={"Authorization": f"Bearer {st.session_state.token}"},
+            timeout=10
+        )
+        return r.json() if r.status_code == 200 else {"total_files": 0, "total_chunks": 0, "documents": []}
+    except:
+        return {"total_files": 0, "total_chunks": 0, "documents": []}
 
 # ─────────────────────────────────────────────
 # LOGIN PAGE
@@ -529,7 +554,13 @@ def show_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
-    # Stats row
+    # Fetch live indexed docs from backend
+    indexed_data = api_list_indexed_docs()
+    live_docs    = indexed_data.get("documents", [])
+    live_files   = indexed_data.get("total_files", 0)
+    live_chunks  = indexed_data.get("total_chunks", 0)
+
+    # ── Stats row ──────────────────────────────
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         st.markdown(f"""<div class="stat-card">
@@ -537,13 +568,13 @@ def show_dashboard():
             <div class="stat-label">Total Queries</div>
         </div>""", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"""<div class="stat-card">
-            <div class="stat-number">{st.session_state.total_docs}</div>
-            <div class="stat-label">Docs Indexed</div>
+        st.markdown(f"""<div class="stat-card" style="cursor:pointer;">
+            <div class="stat-number">{live_files}</div>
+            <div class="stat-label">📄 Docs Indexed</div>
         </div>""", unsafe_allow_html=True)
     with col3:
         st.markdown(f"""<div class="stat-card">
-            <div class="stat-number">{st.session_state.total_chunks}</div>
+            <div class="stat-number">{live_chunks}</div>
             <div class="stat-label">Chunks Stored</div>
         </div>""", unsafe_allow_html=True)
     with col4:
@@ -551,6 +582,45 @@ def show_dashboard():
             <div class="stat-number">{len(st.session_state.chat_history) // 2}</div>
             <div class="stat-label">Conversations</div>
         </div>""", unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # ── Indexed Documents Panel ────────────────
+    with st.expander(f"📂 View Indexed Documents ({live_files} file{'s' if live_files != 1 else ''} | {live_chunks} chunks)", expanded=live_files > 0):
+        if not live_docs:
+            st.info("No documents have been indexed yet. Go to **📄 Upload Documents** to get started.")
+        else:
+            st.markdown(f"<p style='color:#6c757d; font-size:0.85rem;'>These files have been embedded and stored in Pinecone. The AI uses these to answer your questions.</p>", unsafe_allow_html=True)
+            for i, doc in enumerate(live_docs, 1):
+                fname   = doc.get("filename", "unknown")
+                chunks  = doc.get("chunks", 0)
+                indexed = doc.get("indexed_at", "—")
+                ext     = fname.split(".")[-1].upper() if "." in fname else "FILE"
+                ext_color = "#e74c3c" if ext == "PDF" else "#3498db"
+                st.markdown(f"""
+                <div style='display:flex; align-items:center; gap:14px;
+                            background: linear-gradient(135deg, #f8f9fa, #ffffff);
+                            border: 1px solid #dee2e6; border-left: 5px solid {ext_color};
+                            border-radius: 10px; padding: 12px 16px; margin: 8px 0;
+                            box-shadow: 0 2px 6px rgba(0,0,0,0.05);'>
+                    <div style='background:{ext_color}; color:white; padding:6px 10px;
+                                border-radius:6px; font-size:0.72rem; font-weight:700; min-width:40px; text-align:center;'>
+                        {ext}
+                    </div>
+                    <div style='flex:1; overflow:hidden;'>
+                        <div style='font-weight:600; font-size:0.92rem; color:#212529; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;'>
+                            {i}. {fname}
+                        </div>
+                        <div style='font-size:0.78rem; color:#6c757d; margin-top:2px;'>
+                            🔢 {chunks} chunks &nbsp;|&nbsp; 🕐 Indexed: {indexed}
+                        </div>
+                    </div>
+                    <div style='background:#d4edda; color:#155724; padding:3px 10px;
+                                border-radius:20px; font-size:0.72rem; font-weight:600;'>
+                        ✓ Active
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -567,7 +637,7 @@ def show_dashboard():
             "Embedding Dimension": "1024",
             "Chunk Size": "800 words",
             "Chunk Overlap": "100 words",
-            "Top-K Retrieval": "5",
+            "Top-K Retrieval": "3",
             "JWT Expiry": "24 hours"
         }
         for k, v in config.items():
@@ -578,19 +648,20 @@ def show_dashboard():
     with col2:
         st.markdown("### 🌐 API Endpoints")
         endpoints = [
-            ("POST", "/auth/login", "Get JWT token"),
-            ("POST", "/rag/query", "Ask a question"),
-            ("POST", "/ingest/upload", "Upload PDF (Admin)"),
-            ("GET",  "/health",       "Service health"),
-            ("GET",  "/users/me",     "Current user info"),
-            ("GET",  "/users/list",   "List users (Admin)"),
+            ("POST", "/auth/login",    "Get JWT token"),
+            ("POST", "/rag/query",     "Ask a question"),
+            ("POST", "/ingest/upload", "Upload PDF"),
+            ("GET",  "/ingest/list",   "List indexed docs"),
+            ("GET",  "/health",        "Service health"),
+            ("GET",  "/users/me",      "Current user info"),
+            ("GET",  "/users/list",    "List users (Admin)"),
         ]
         for method, path, desc in endpoints:
             color = "#28a745" if method == "GET" else "#007bff"
             st.markdown(f"""
-            <div style='display:flex; align-items:center; gap:10px; margin:6px 0; 
+            <div style='display:flex; align-items:center; gap:10px; margin:6px 0;
                         background:#f8f9fa; padding:6px 10px; border-radius:6px;'>
-                <span style='background:{color}; color:white; padding:2px 8px; 
+                <span style='background:{color}; color:white; padding:2px 8px;
                              border-radius:4px; font-size:0.75rem; font-weight:600;'>{method}</span>
                 <code style='flex:1;'>{path}</code>
                 <span style='color:#6c757d; font-size:0.82rem;'>{desc}</span>
